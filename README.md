@@ -1,2 +1,2 @@
-# Regulator-dwupo-o-eniowy-SM
+# Regulator-dwupolozeniowy-SM
 projekt zaliczeniowy na przedmiot systemy mikroprocesorowe
