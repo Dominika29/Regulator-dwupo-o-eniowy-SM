@@ -75,21 +75,21 @@ static float pid_i = 0.0f;
 static float pid_prev_y = 0.0f;
 
 /* --- output / limiter --- */
-static float u_prev = 0.0f;          // dla limitera narastania
+static float u_prev = 0.0f;         
 static float DU_UP = 6.0f;
 static float DU_DN = 20.0f;
 static float control_u = 0.0f;       // 0..100 (%)
 
 /* overshoot handling */
-static const float OS_MARGIN = 0.15f;   // °C - kiedy uznajemy przebitkę
+static const float OS_MARGIN = 0.15f;  
 static const float DU_DN_OS_MULT = 2.0f;
 
 
 /* integrator unwind on overshoot */
 static const float I_UNWIND = 0.85f;
 
-/* --- OPEN safety (hard limit only) --- */
-static const float OPEN_HARD_MAX = 65.0f;  // °C (bezpiecznik fizyczny)
+/* --- OPEN safety --- */
+static const float OPEN_HARD_MAX = 65.0f;  
 
 /* --- mode --- */
 typedef enum {
@@ -165,7 +165,7 @@ static float lowpass_ctrl(float x)
 {
     static uint8_t init = 0;
     static float y = 0.0f;
-    const float alpha = 0.40f;  // szybszy tor dla regulatora
+    const float alpha = 0.40f;  
 
     if (!init) { y = x; init = 1; }
     else { y = y + alpha * (x - y); }
@@ -177,7 +177,7 @@ static float lowpass_tel(float x)
 {
     static uint8_t init = 0;
     static float y = 0.0f;
-    const float alpha = 0.20f;  // wolniejszy tor do podglądu/telemetrii
+    const float alpha = 0.20f; 
 
     if (!init) { y = x; init = 1; }
     else { y = y + alpha * (x - y); }
@@ -233,7 +233,6 @@ static float clampf(float x, float lo, float hi)
     return x;
 }
 
-/* PID in "position form" with simple anti-windup by clamping integrator */
 static float pid_step(float sp, float y, float dt_s)
 {
     if (dt_s <= 1e-6f) dt_s = 1e-6f;
@@ -263,7 +262,7 @@ static void pid_bumpless_init(float u_now, float sp, float y)
 {
     float e = sp - y;
     float p = kp * e;
-    // kd masz zwykle 0, ale zostawmy:
+    
     float d = 0.0f;
 
     if (ki > 1e-6f) {
@@ -305,18 +304,15 @@ static void uart_start_rx_it(void)
     HAL_UART_Receive_IT(&huart3, &rx_ch, 1);
 }
 
-/* Wywoływane z callbacka po odebraniu znaku */
 static void uart_handle_char(uint8_t c)
 {
-    // echo znaków do debug
-    // uart_printf("[RX:%c]\r\n", c);
 
     if (c == '\r') return;
 
     if (c == '\n') {
         rx_line[rx_len] = '\0';
 
-        uart_printf("LINE='%s'\r\n", rx_line);  // debug: co przyszlo
+        uart_printf("LINE='%s'\r\n", rx_line);  
 
         float val;
 
@@ -339,7 +335,7 @@ static void uart_handle_char(uint8_t c)
 
             pid_bumpless_init(control_u, temp_zadana, temperature_ctrl);
 
-            // limiter startuje od aktualnego OUT
+            
             rate_limit_reset(control_u);
 
             uart_print("OK MODE PID\r\n");
@@ -347,7 +343,7 @@ static void uart_handle_char(uint8_t c)
         else if (strncmp(rx_line, "MODE OPEN", 9) == 0) {
             ctrl_mode = MODE_OPEN;
 
-            // limiter dopasuj do aktualnego OUT (manual), żeby nie było skoków w logach
+            
             rate_limit_reset(out_manual);
 
             uart_print("OK MODE OPEN\r\n");
@@ -389,7 +385,7 @@ static void heater_set_percent(float percent)
 {
 	percent = clampf(percent, 0.0f, 100.0f);
 
-	    uint32_t arr = __HAL_TIM_GET_AUTORELOAD(&htim4);   // np. 999
+	    uint32_t arr = __HAL_TIM_GET_AUTORELOAD(&htim4);   
 	    uint32_t ccr = (uint32_t)((percent * (float)(arr + 1U) / 100.0f) + 0.5f);
 
     __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_1, ccr);
@@ -570,7 +566,7 @@ int main(void)
               pid_i += e * dt_s;
 
               // KLUCZ: clamp integratora tak, aby u mogło być w [0..100]
-              // (zapobiega ogromnemu ujemnemu I po długim u=0)
+        
               float i_min = (0.0f   - (p + d)) / ki;
               float i_max = (100.0f - (p + d)) / ki;
               pid_i = clampf(pid_i, i_min, i_max);
@@ -581,23 +577,22 @@ int main(void)
           float u_unsat = p + (ki * pid_i) + d;
           float u_sat   = clampf(u_unsat, 0.0f, 100.0f);
 
-          // --- dynamiczny limiter: szybciej tnij gdy za gorąco, szybciej grzej gdy za zimno ---
+          // --- dynamiczny limiter:---
           const float MARGIN = 0.12f;     // 0.1–0.2°C
           float du_up = DU_UP;
           float du_dn = DU_DN;
 
           if (y > sp + MARGIN) {
-              du_dn = DU_DN * 2.0f;       // szybciej w dół gdy przebijasz w górę
+              du_dn = DU_DN * 2.0f;       
           }
           if (y < sp - MARGIN) {
-              du_up = DU_UP * 2.0f;       // szybciej w górę gdy przebiłeś w dół (to naprawia Twój problem)
+              du_up = DU_UP * 2.0f;       
           }
 
           float u_lim = rate_limit_asym(u_sat, du_up, du_dn);
 
           // --- back-calculation (tylko jeśli limiter coś zmienił) ---
           if (ki > 1e-9f && (u_lim != u_sat)) {
-              // delikatnie, żeby nie pompowało
               const float Kb = 0.5f;
               pid_i += Kb * (u_lim - u_unsat) / ki;
           }
